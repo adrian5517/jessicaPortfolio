@@ -38,23 +38,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const configuredFromEmail = process.env.FROM_EMAIL?.trim();
-    const isPersonalMailboxDomain =
-      !!configuredFromEmail && /@(gmail|yahoo|hotmail|outlook|live)\./i.test(configuredFromEmail);
-    const fallbackFromEmail = 'onboarding@resend.dev';
-    const fromEmail =
-      !configuredFromEmail || isPersonalMailboxDomain
-        ? fallbackFromEmail
-        : configuredFromEmail;
+    const fromEmail = process.env.FROM_EMAIL?.trim() || 'no-reply@jessica.ph';
     const toEmail = process.env.CONTACT_EMAIL || 'jesscallanta27@gmail.com';
 
-    const sendEmail = async (senderEmail: string) =>
-      resend.emails.send({
-        from: `Contact Form <${senderEmail}>`,
-        to: toEmail,
-        reply_to: body.email,
-        subject: `New Contact Form Submission: ${body.subject}`,
-        html: `
+    const data = await resend.emails.send({
+      from: `Contact Form <${fromEmail}>`,
+      to: toEmail,
+      reply_to: body.email,
+      subject: `New Contact Form Submission: ${body.subject}`,
+      html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9; border: 1px solid #ddd; border-radius: 8px;">
           <h2 style="color: #0d0d0d; border-bottom: 3px solid #0d0d0d; padding-bottom: 10px;">New Contact Form Submission</h2>
           
@@ -74,30 +66,21 @@ export async function POST(request: NextRequest) {
           </div>
         </div>
       `,
-      });
-
-    // Send email to your inbox
-    let data = await sendEmail(fromEmail);
-
-    if (data.error) {
-      const resendMessage = data.error.message || '';
-      const isDomainVerificationError = /domain is not verified/i.test(resendMessage);
-
-      if (isDomainVerificationError && fromEmail !== fallbackFromEmail) {
-        data = await sendEmail(fallbackFromEmail);
-      }
-    }
+    });
 
     if (data.error) {
       console.error('Resend error:', data.error);
       const resendMessage = data.error.message || '';
       const isDomainVerificationError = /domain is not verified/i.test(resendMessage);
+      const isTestModeRecipientError = /only send testing emails/i.test(resendMessage);
       return NextResponse.json(
         {
           error:
             process.env.NODE_ENV === 'development'
               ? isDomainVerificationError
-                ? 'Failed to send email: Sender domain is not verified. Use onboarding@resend.dev for testing or verify your custom domain in Resend.'
+                ? 'Failed to send email: Sender domain is not verified. Verify your custom domain in Resend and use a matching FROM_EMAIL.'
+                : isTestModeRecipientError
+                  ? 'Failed to send email: Resend is still in test mode. Verify your domain and use a verified sender/recipient for production.'
                 : `Failed to send email: ${resendMessage}`
               : 'Failed to send email',
         },
