@@ -43,6 +43,20 @@ export default function Contact() {
   const [error, setError] = useState<string | null>(null);
   const [focused, setFocused] = useState<string | null>(null);
 
+  const getFriendlyErrorMessage = (rawMessage: string) => {
+    const message = rawMessage.toLowerCase();
+
+    if (message.includes('missing resend_api_key') || message.includes('email service is not configured')) {
+      return 'Email service is temporarily unavailable. Please use the phone or direct email listed on this page.';
+    }
+
+    if (message.includes('failed to fetch') || message.includes('networkerror')) {
+      return 'Network issue detected. Please check your connection and try again.';
+    }
+
+    return rawMessage;
+  };
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
@@ -63,10 +77,16 @@ export default function Contact() {
         body: JSON.stringify(formData),
       });
 
-      const result = await response.json();
+      let result: { error?: string } = {};
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        result = await response.json();
+      }
 
       if (!response.ok) {
-        throw new Error(result.error || 'Failed to send email');
+        const apiError = result.error || `Failed to send email (status ${response.status})`;
+        setError(getFriendlyErrorMessage(apiError));
+        return;
       }
 
       setSubmitted(true);
@@ -77,8 +97,8 @@ export default function Contact() {
       }, 5000);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'An error occurred';
-      setError(errorMessage);
-      console.error('Form submission error:', err);
+      setError(getFriendlyErrorMessage(errorMessage));
+      console.warn('Form submission issue:', err);
     } finally {
       setLoading(false);
     }

@@ -1,8 +1,6 @@
 import { Resend } from 'resend';
 import { NextRequest, NextResponse } from 'next/server';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-
 interface ContactFormData {
   name: string;
   email: string;
@@ -12,6 +10,15 @@ interface ContactFormData {
 
 export async function POST(request: NextRequest) {
   try {
+    const resendApiKey = process.env.RESEND_API_KEY;
+    if (!resendApiKey) {
+      return NextResponse.json(
+        { error: 'Email service is not configured. Missing RESEND_API_KEY.' },
+        { status: 500 }
+      );
+    }
+
+    const resend = new Resend(resendApiKey);
     const body: ContactFormData = await request.json();
 
     // Validate form data
@@ -31,13 +38,23 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Send email to your inbox
-    const data = await resend.emails.send({
-      from: 'Contact Form <onboarding@resend.dev>',
-      to: process.env.CONTACT_EMAIL || 'jesscallanta27@gmail.com',
-      replyTo: body.email,
-      subject: `New Contact Form Submission: ${body.subject}`,
-      html: `
+    const configuredFromEmail = process.env.FROM_EMAIL?.trim();
+    const isPersonalMailboxDomain =
+      !!configuredFromEmail && /@(gmail|yahoo|hotmail|outlook|live)\./i.test(configuredFromEmail);
+    const fallbackFromEmail = 'onboarding@resend.dev';
+    const fromEmail =
+      !configuredFromEmail || isPersonalMailboxDomain
+        ? fallbackFromEmail
+        : configuredFromEmail;
+    const toEmail = process.env.CONTACT_EMAIL || 'jesscallanta27@gmail.com';
+
+    const sendEmail = async (senderEmail: string) =>
+      resend.emails.send({
+        from: `Contact Form <${senderEmail}>`,
+        to: toEmail,
+        reply_to: body.email,
+        subject: `New Contact Form Submission: ${body.subject}`,
+        html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9; border: 1px solid #ddd; border-radius: 8px;">
           <h2 style="color: #0d0d0d; border-bottom: 3px solid #0d0d0d; padding-bottom: 10px;">New Contact Form Submission</h2>
           
@@ -57,12 +74,33 @@ export async function POST(request: NextRequest) {
           </div>
         </div>
       `,
-    });
+      });
+
+    // Send email to your inbox
+    let data = await sendEmail(fromEmail);
+
+    if (data.error) {
+      const resendMessage = data.error.message || '';
+      const isDomainVerificationError = /domain is not verified/i.test(resendMessage);
+
+      if (isDomainVerificationError && fromEmail !== fallbackFromEmail) {
+        data = await sendEmail(fallbackFromEmail);
+      }
+    }
 
     if (data.error) {
       console.error('Resend error:', data.error);
+      const resendMessage = data.error.message || '';
+      const isDomainVerificationError = /domain is not verified/i.test(resendMessage);
       return NextResponse.json(
-        { error: 'Failed to send email' },
+        {
+          error:
+            process.env.NODE_ENV === 'development'
+              ? isDomainVerificationError
+                ? 'Failed to send email: Sender domain is not verified. Use onboarding@resend.dev for testing or verify your custom domain in Resend.'
+                : `Failed to send email: ${resendMessage}`
+              : 'Failed to send email',
+        },
         { status: 500 }
       );
     }
@@ -78,7 +116,12 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Email sending error:', error);
     return NextResponse.json(
-      { error: 'Internal server error' },
+      {
+        error:
+          process.env.NODE_ENV === 'development'
+            ? `Internal server error: ${error instanceof Error ? error.message : 'Unknown error'}`
+            : 'Internal server error',
+      },
       { status: 500 }
     );
   }
