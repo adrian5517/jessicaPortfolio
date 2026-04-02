@@ -7,7 +7,7 @@ const experiences = [
   {
     index: '01',
     title: 'Accounts Payable & Receivable',
-    company: 'ES Print Media Inc. & Candelaria Beach Resort',
+    company: 'ES Print Media Inc.',
     period: 'Dec 2023 – Mar 2026',
     type: 'Full-Time',
     accent: '#FFE500',
